@@ -1,5 +1,5 @@
 ;; BitTrade DEX Contract
-;; Synthetic Asset DEX with AMM functionality
+;; Synthetic Asset DEX with AMM functionality and multi-asset swaps
 
 ;; Constants
 (define-constant contract-owner tx-sender)
@@ -7,6 +7,7 @@
 (define-constant err-insufficient-funds (err u101))
 (define-constant err-pool-not-found (err u102))
 (define-constant err-invalid-params (err u103))
+(define-constant err-path-too-long (err u104))
 
 ;; Data vars
 (define-data-var protocol-fee-rate uint u3) ;; 0.3%
@@ -36,6 +37,39 @@
         (denominator (add (mul input-reserve u1000) input-with-fee))
     )
     (div numerator denominator))
+)
+
+(define-private (execute-swap-step (input-amount uint) (input-id uint) (output-id uint))
+    (let (
+        (input-pool (unwrap! (map-get? asset-pools { asset-id: input-id }) err-pool-not-found))
+        (output-pool (unwrap! (map-get? asset-pools { asset-id: output-id }) err-pool-not-found))
+        (output-amount (calculate-swap-output 
+            input-amount
+            (get stx-balance input-pool)
+            (get asset-balance output-pool)
+        ))
+    )
+    (begin
+        (map-set asset-pools
+            { asset-id: input-id }
+            {
+                liquidity: (get liquidity input-pool),
+                stx-balance: (+ (get stx-balance input-pool) input-amount),
+                asset-balance: (get asset-balance input-pool),
+                total-shares: (get total-shares input-pool)
+            }
+        )
+        (map-set asset-pools
+            { asset-id: output-id }
+            {
+                liquidity: (get liquidity output-pool),
+                stx-balance: (get stx-balance output-pool),
+                asset-balance: (- (get asset-balance output-pool) output-amount),
+                total-shares: (get total-shares output-pool)
+            }
+        )
+        (ok output-amount))
+    )
 )
 
 ;; Public functions
@@ -109,6 +143,16 @@
     (ok asset-out))
 )
 
+(define-public (multi-asset-swap (path (list 5 uint)) (input-amount uint) (min-output-amount uint))
+    (let (
+        (path-len (len path))
+    )
+    (asserts! (> path-len u1) err-invalid-params)
+    (asserts! (<= path-len u5) err-path-too-long)
+    
+    (fold execute-swap-step path input-amount))
+)
+
 ;; Read only functions
 (define-read-only (get-pool-info (asset-id uint))
     (map-get? asset-pools { asset-id: asset-id })
@@ -116,4 +160,8 @@
 
 (define-read-only (get-user-position (user principal) (asset-id uint))
     (map-get? user-positions { user: user, asset-id: asset-id })
+)
+
+(define-read-only (get-optimal-swap-path (input-id uint) (output-id uint))
+    (list input-id output-id)
 )
