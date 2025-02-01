@@ -71,27 +71,37 @@ Clarinet.test({
 });
 
 Clarinet.test({
-  name: "Can perform swaps with correct output amount",
+  name: "Can perform multi-asset swaps",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
     const wallet1 = accounts.get('wallet_1')!;
     
-    let block = chain.mineBlock([
+    // Create multiple pools
+    let setupBlock = chain.mineBlock([
       Tx.contractCall('bittrade', 'create-pool', [
         types.uint(1),
         types.uint(1000000),
         types.uint(1000000)
       ], deployer.address),
-      
-      Tx.contractCall('bittrade', 'swap-stx-to-asset', [
-        types.uint(1),
+      Tx.contractCall('bittrade', 'create-pool', [
+        types.uint(2),
+        types.uint(1000000),
+        types.uint(1000000)
+      ], deployer.address)
+    ]);
+    
+    setupBlock.receipts.map(receipt => receipt.result.expectOk());
+    
+    // Perform multi-asset swap
+    let swapBlock = chain.mineBlock([
+      Tx.contractCall('bittrade', 'multi-asset-swap', [
+        types.list([types.uint(1), types.uint(2)]),
         types.uint(100000),
         types.uint(90000)
       ], wallet1.address)
     ]);
     
-    block.receipts[0].result.expectOk();
-    const swapResult = block.receipts[1].result.expectOk();
+    const swapResult = swapBlock.receipts[0].result.expectOk();
     assertEquals(swapResult.toString() > types.uint(90000), true);
   },
 });
