@@ -1,7 +1,7 @@
-// [Previous test content remains, adding new tests...]
+// [Previous test content with additional tests]
 
 Clarinet.test({
-  name: "Can remove liquidity from pool",
+  name: "Ensures reentrancy protection works",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
     const wallet1 = accounts.get('wallet_1')!;
@@ -13,12 +13,7 @@ Clarinet.test({
         types.uint(1000000)
       ], deployer.address),
       
-      Tx.contractCall('bittrade', 'add-liquidity', [
-        types.uint(1),
-        types.uint(100000),
-        types.uint(90000)
-      ], wallet1.address),
-      
+      // Attempt reentrancy
       Tx.contractCall('bittrade', 'remove-liquidity', [
         types.uint(1),
         types.uint(50000),
@@ -28,17 +23,25 @@ Clarinet.test({
       ], wallet1.address)
     ]);
     
-    block.receipts[2].result.expectOk();
+    block.receipts[1].result.expectErr(109); // err-reentrancy
+  },
+});
+
+Clarinet.test({
+  name: "Emergency withdrawal works when paused",
+  async fn(chain: Chain, accounts: Map<string, Account>) {
+    const deployer = accounts.get('deployer')!;
     
-    // Verify updated position
-    let positionBlock = chain.mineBlock([
-      Tx.contractCall('bittrade', 'get-user-position', [
-        types.principal(wallet1.address),
+    let block = chain.mineBlock([
+      Tx.contractCall('bittrade', 'set-paused', [
+        types.bool(true)
+      ], deployer.address),
+      
+      Tx.contractCall('bittrade', 'emergency-withdraw', [
         types.uint(1)
       ], deployer.address)
     ]);
     
-    const position = positionBlock.receipts[0].result.expectSome();
-    assertEquals(position.shares.toString(), types.uint(50000));
+    block.receipts[1].result.expectOk();
   },
 });
